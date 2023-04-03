@@ -8,6 +8,7 @@ class CountPerMilionNormalizer(TransformerMixin, BaseEstimator):
     """
     cpm normalization provided as a scikit-learn transformer estimator
     """
+
     def __init__(self, log=False, factor=1e6):
         '''
         :param log: True to convert to log counts
@@ -34,13 +35,17 @@ class GfIcfTransformer(BaseEstimator, TransformerMixin):
     """
     Gf-icf normalization provided as a scikit-learn transformer estimator
     """
+
     def __init__(self):
         self.tfidf = TfidfTransformer()
 
     def transform(self, X, y=None):
-        return self.tfidf.transform(X).toarray()
+        return self.tfidf.transform(np.array(X)).toarray()
 
     def fit(self, X, y=None):
-        self.tfidf.fit(X)
+        self.tfidf.fit(np.array(X))
         return self
 
+    def fit_transform(self, X, y=None, **fit_params):
+        self.fit(X, y)
+        return self.transform(X, y)

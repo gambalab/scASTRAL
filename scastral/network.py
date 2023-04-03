@@ -19,7 +19,7 @@ class ContrastiveAEDataset(Dataset):
     def __init__(self, data, label):
         self.data = data
         self.label = label
-
+        self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.pairs = []
 
         for i in range(len(label)):
@@ -37,7 +37,9 @@ class ContrastiveAEDataset(Dataset):
         else:
             j = choice(np.argwhere(np.array(self.label != curr_label)))[0]
 
-        return Tensor(self.data[i, :]), Tensor(self.data[j, :]), label
+        return torch.tensor(self.data[i, :], device=self.device, dtype=torch.float32), \
+            torch.tensor(self.data[j, :], device=self.device, dtype=torch.float32), \
+            torch.tensor(label, device=self.device, dtype=torch.float32)
 
 
 class Encoder(nn.Module):
@@ -47,10 +49,9 @@ class Encoder(nn.Module):
 
     def __init__(self, input_size=3000, hidden_size=512, latent_size=32):
         super(Encoder, self).__init__()
-
+        self.latent_size = latent_size
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.relu = nn.ReLU()
-
         self.fc2 = nn.Linear(hidden_size, latent_size)
 
     def forward(self, x):
@@ -72,7 +73,6 @@ class Decoder(nn.Module):
 
         self.fc1 = nn.Linear(latent_size, hidden_size)
         self.relu = nn.ReLU()
-
         self.fc2 = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
@@ -151,10 +151,10 @@ class SCAstral(BaseEstimator, TransformerMixin):
         :param predictor:  predictor for the latent space
         :param metric:  metric to compute on latent space
         """
-
-        self.e_net = Encoder(input_size, hidden_size, latent_size)
-        self.d_net = Decoder(input_size, hidden_size, latent_size)
-        self.autoencoder = PairsAutoEncoder(self.e_net, self.d_net)
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.e_net = Encoder(input_size, hidden_size, latent_size).to(self.device)
+        self.d_net = Decoder(input_size, hidden_size, latent_size).to(self.device)
+        self.autoencoder = PairsAutoEncoder(self.e_net, self.d_net).to(self.device)
 
         self.batch_size = batch_size
         self.max_epochs = max_epochs
@@ -188,7 +188,7 @@ class SCAstral(BaseEstimator, TransformerMixin):
         :param y: only for compatibility
         :return:
         """
-        return self.e_net(Tensor(X)).detach().numpy()
+        return self.e_net(torch.tensor(X, device=self.device, dtype=torch.float32)).detach().cpu().numpy()
 
     def set_valid_data(self, X_valid, y_valid):
         self.valid = X_valid
@@ -238,12 +238,13 @@ class SCAstral(BaseEstimator, TransformerMixin):
             """
             train autoencoder
             """
+
             self.autoencoder.train()
             for batch_idx, (X1, X2, flag) in tqdm(enumerate(train_dl), total=len(train_dl), disable=not self.verbose):
                 optim.zero_grad()
 
                 emb1, emb2, rec = self.autoencoder(X1, X2)  # forward
-                loss = mse_loss(rec, X1) + \
+                loss = self.alfa * mse_loss(rec, X1) + \
                     self.sigma * self.autoencoder.get_sparsity(X1) + \
                     self.theta * contrastive_loss(emb1, emb2, flag)  # compute loss
 
@@ -266,8 +267,8 @@ class SCAstral(BaseEstimator, TransformerMixin):
 
                     emb1, emb2, rec = self.autoencoder(X1, X2)  # forward
                     loss = self.alfa * mse_loss(rec, X1) + \
-                           self.sigma * self.autoencoder.get_sparsity(X1) + \
-                           self.theta * contrastive_loss(emb1, emb2, flag)  # compute loss
+                        self.sigma * self.autoencoder.get_sparsity(X1) + \
+                        self.theta * contrastive_loss(emb1, emb2, flag)  # compute loss
 
                     # update summary
                     self.training_summary['valid_loss'][epoch] += float(loss)
