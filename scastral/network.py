@@ -282,7 +282,6 @@ class SCAstral(BaseEstimator, TransformerMixin):
                     """
                     train_emb = self.transform(X)
                     test_emb = self.transform(self.valid)
-
                     self.predictor.fit(train_emb, y)
                     pred = self.predictor.predict(test_emb)
                     self.training_summary['metric'][epoch] = self.metric(self.valid_y, pred)
