@@ -6,6 +6,7 @@ __pycache__/
 # C extensions
 *.so
 data/train_set.csv
+data/test_set.csv
 # Distribution / packaging
 .Python
 build/
