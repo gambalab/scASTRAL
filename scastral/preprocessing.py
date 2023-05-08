@@ -47,26 +47,17 @@ def compute_scale_factors(readcounts, trim_m=0.3, trim_a=0.05):
 
 
 class CountPerMilionNormalizer(TransformerMixin, BaseEstimator):
-    def __init__(self, total=1e6, variance_stabilization=None):
-        self.variance_stabilization = variance_stabilization
+    def __init__(self, total=1e6):
         self.total = total
         self.factors = None
 
     def fit(self, X, y=None):
-        if self.variance_stabilization == True or self.variance_stabilization == 'tmm':
-            self.factors = compute_scale_factors(X).reshape(-1, 1)
+        self.factors = compute_scale_factors(X).reshape(-1, 1)
         return self
 
     def transform(self, X, y=None):
         X = normalize(X, norm='l1') * self.total
-        if self.variance_stabilization is None:
-            return X
-        elif self.variance_stabilization == 'sqrt':
-            return np.sqrt(X)
-        elif self.variance_stabilization == 'log':
-            return np.log(X + 1)
-        else:
-            return X / self.factors
+        return X / self.factors
 
     def fit_transform(self, X, y=None, **fit_params):
         self.fit(X)
