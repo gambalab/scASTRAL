@@ -70,7 +70,7 @@ class GfIcfTransformer(BaseEstimator, TransformerMixin):
     """
 
     def __init__(self):
-        self.tfidf = TfidfTransformer()
+        self.tfidf = TfidfTransformer(norm=None)
 
     def transform(self, X, y=None):
         return self.tfidf.transform(np.array(X)).toarray()

@@ -51,7 +51,7 @@ def load_adata(data_dir, mat_file='matrix.mtx', barc_file='barcodes.tsv', feat_f
     barcodes = pd.read_csv(f'{data_dir}/{barc_file}', sep='\t', header=None)  # load barcodes
     features = pd.read_csv(f'{data_dir}/{feat_file}', sep='\t', header=None)  # load features
 
-    return ad.AnnData(X=matrix.T.toarray(),  # initialize anndata
+    return ad.AnnData(X=matrix.T,  # initialize anndata
                       obs=barcodes,
                       var=features,
                       dtype=matrix.dtype)

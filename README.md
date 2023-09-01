@@ -9,16 +9,18 @@ feature extraction and a svm for the classification
 pipeline is provided as a pickled scikit-learn compatible estimator to be
 easily integrated seamlessly in any python workflow.
 It can be used with the following methods:
-- predict(X)
-- transform(X)
-- predict_proba(X)
+- predict(X): predict the class of cell ( 1 means resistent)
+- transform(X): get embedding of input vector
+- predict_proba(X): get probability of each class
 --------------------------------------------------
 ### project structure:
 
 - data
-  - get_data.py: script to download experiment data
   - afatinib.csv: afatinib drug response data
   - signature: gene signature
+  - train_set: the preprocessed mdamb468 labeled cell line (only 374 genes)
+  - cell line: contains preprocessed validation data
+  - preprocessing script.py: script to preprocess data before giving in input to scASTRAL
 - models
   - scASTRAL_pipeline.sk: scikit-learn compatible estimator for scastral
   classification and feature extraction
@@ -28,3 +30,4 @@ It can be used with the following methods:
   - preprocessing.py: scikit-learn compatible Transformers for count normalization
 - train_model.ipynb: jupyter notebook illustrating model training
 - validate_model.ipynb: jupyter model illustrating model validation
+- find_treshold.py: process to estimate confidence thresholds

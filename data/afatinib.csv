@@ -16,7 +16,7 @@ COLO-824,BRCA,breast,breast,2.699901,0.79578
 UACC-812,BRCA,breast,breast,2.779515,0.737357
 HCC1500,BRCA,breast,breast,3.42817,0.828482
 MDA-MB-453,BRCA,breast,breast,3.711945,0.822175
-Hs-578-T,BRCA,breast,breast,4.284834,0.823582
+HS-578-T,BRCA,breast,breast,4.284834,0.823582
 HCC1569,BRCA,breast,breast,4.549182,0.838381
 MRK-nu-1,BRCA,breast,breast,4.814584,0.873693
 CAL-148,BRCA,breast,breast,4.940143,0.823839
@@ -49,7 +49,7 @@ HCC38,BRCA,breast,breast,40.477687,0.938987
 MDA-MB-436,BRCA,breast,breast,77.484968,0.95678
 BT-483,BRCA,breast,breast,137.066337,0.901827
 SUM185,BRCA,breast,breast,2.81,0
-SUM229,BRCA,breast,breast,0.828,0
-SUM147,BRCA,breast,breast,1.21,0
-SUM150,BRCA,breast,breast,1.24,0
-SUM1315,BRCA,breast,breast,1.33,0
+SUM229PE,BRCA,breast,breast,0.828,0
+SUM149PT,BRCA,breast,breast,1.21,0
+SUM159PT,BRCA,breast,breast,1.24,0
+SUM1315MO2,BRCA,breast,breast,1.33,0
