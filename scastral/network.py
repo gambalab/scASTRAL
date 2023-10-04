@@ -32,17 +32,11 @@ class ContrastiveAEDataset(Dataset):
         for i in range(len(label)):
             self.pairs.append((i, 1))  # add a positive pair
             self.pairs.append((i, -1))  # add a negative pair
-        """ for i in range(len(label)):
-            for j in range(i + 1, len(label)):
-                self.pairs.append((i, j, 1 if label[i] == label[j] else -1))"""
-
-
 
     def __len__(self):
         return len(self.pairs)
 
     def __getitem__(self, idx):
-        #i, j, label = self.pairs[idx]
 
         i, label = self.pairs[idx]
         curr_label = self.label[i]
