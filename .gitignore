@@ -130,8 +130,9 @@ dmypy.json
 /data/rawdata/
 /data/train_set/
 /data/validation_set/
-/data/.~lock.performance_auto_tresh.csv#
 /data/signature_549.csv
 /data/signature_856.csv
 /data/signature_valid_result.json
 /models/old_gs_results/
+/revision_1.py
+/models/weights.pt
