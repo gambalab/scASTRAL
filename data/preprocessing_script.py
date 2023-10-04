@@ -1,34 +1,39 @@
-from random import seed
-
-import numpy as np
 import pandas as pd
-import scanpy as sc
 
-from scastral.preprocessing import CountPerMilionNormalizer
+from scastral.preprocessing import CountPerMilionNormalizer, GfIcfTransformer
+from scastral.utils import load_adata
 
-seed(1234)
-np.random.seed(1234)
-
-signature = pd.read_csv('data/signature.csv')
+signature = pd.read_csv('data/signature_374.csv')
 signature = list(signature['ensembl_gene_id'])
 
-path = 'data/old_sum/HDQP1_2'
-ensemblid_key = 'gene_ids'
-cell_line_name = 'HDQP1_2.csv'
-prefix = ''
+input_path = ''  # expression matrix in 10x format
+output_file = ''  # output csv file path
+ensemblid_key = ''  # the colname used in adata for gene ensemblid
 
-adata = sc.read_10x_mtx(path, prefix=prefix)
-
-X = pd.DataFrame(adata.X.toarray(),
-                 index=adata.obs.index,
+adata = load_adata(input_path,
+                   mat_file='matrix.mtx.gz',
+                   barc_file='barcodes.tsv.gz',
+                   feat_file='features.tsv.gz')  # reading data
+# filtering
+X = adata.X.toarray()
+X = X[X.sum(axis=1) > 5000, :]
+# normalizing
+X = pd.DataFrame(CountPerMilionNormalizer(norm_factors='edgeR').fit_transform(X),
                  columns=[gene.split('.')[0] for gene in adata.var[ensemblid_key]])
-
-X = X.iloc[X.sum(axis=1) > 5000, :]
-X = pd.DataFrame(CountPerMilionNormalizer().fit_transform(X),
-                 index=adata.obs.index,
-                 columns=[gene.split('.')[0] for gene in adata.var[ensemblid_key]])
+# removing duplicates
 X = X.loc[:, ~X.columns.duplicated()]
+# adding missing features
 for gene in signature:
     if gene not in X.columns:
         X[gene] = 0
-X.loc[:, signature].to_csv(f'data/cell_line/{cell_line_name}')
+
+# subset to signature
+X = X.loc[:, signature]
+
+# gficf transform
+gficf = GfIcfTransformer()
+gficf.fit(X)
+
+# write result
+X = pd.DataFrame(gficf.transform(X), index=X.index, columns=X.columns)
+X.to_csv(output_file)

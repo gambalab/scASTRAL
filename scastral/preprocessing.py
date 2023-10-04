@@ -47,17 +47,21 @@ def compute_scale_factors(readcounts, trim_m=0.3, trim_a=0.05):
 
 
 class CountPerMilionNormalizer(TransformerMixin, BaseEstimator):
-    def __init__(self, total=1e6):
+    def __init__(self, total=1e6, norm_factors=True):
         self.total = total
+        self.norm_factors = norm_factors
         self.factors = None
 
     def fit(self, X, y=None):
-        self.factors = compute_scale_factors(X).reshape(-1, 1)
+        if self.norm_factors:
+            self.factors = compute_scale_factors(X).reshape(-1, 1)
         return self
 
     def transform(self, X, y=None):
+        if self.norm_factors:
+            return X / self.factors
         X = normalize(X, norm='l1') * self.total
-        return X / self.factors
+        return X
 
     def fit_transform(self, X, y=None, **fit_params):
         self.fit(X)
@@ -70,7 +74,7 @@ class GfIcfTransformer(BaseEstimator, TransformerMixin):
     """
 
     def __init__(self):
-        self.tfidf = TfidfTransformer(norm=None)
+        self.tfidf = TfidfTransformer()
 
     def transform(self, X, y=None):
         return self.tfidf.transform(np.array(X)).toarray()

@@ -1,15 +1,22 @@
 from random import choice
-
 import numpy as np
+import pandas as pd
 import torch
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.metrics import accuracy_score
-from sklearn.model_selection import cross_val_score
+from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin
+from sklearn.metrics import accuracy_score, roc_auc_score
 from torch import nn
 from torch.nn.functional import mse_loss
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+
+
+def roc_auc_scorer(data, label, predictor):
+    return roc_auc_score(label, predictor.predict_proba(data)[:, 1])
+
+
+def accuracy_scorer(data, label, predictor):
+    return accuracy_score(label, predictor.predict(data))
 
 
 class ContrastiveAEDataset(Dataset):
@@ -22,15 +29,21 @@ class ContrastiveAEDataset(Dataset):
         self.label = label
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.pairs = []
-
         for i in range(len(label)):
             self.pairs.append((i, 1))  # add a positive pair
             self.pairs.append((i, -1))  # add a negative pair
+        """ for i in range(len(label)):
+            for j in range(i + 1, len(label)):
+                self.pairs.append((i, j, 1 if label[i] == label[j] else -1))"""
+
+
 
     def __len__(self):
         return len(self.pairs)
 
     def __getitem__(self, idx):
+        #i, j, label = self.pairs[idx]
+
         i, label = self.pairs[idx]
         curr_label = self.label[i]
         if label == 1:  # random sampling
@@ -52,16 +65,15 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self.latent_size = latent_size
         self.fc1 = nn.Linear(input_size, hidden_size)
-        #self.relu1 = nn.ReLU()
+        # self.relu1 = nn.ReLU()
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(hidden_size, latent_size)
-        #self.relu2 = nn.ReLU()
+        # self.relu2 = nn.ReLU()
 
     def forward(self, x):
         x = self.fc1(x)
         x = self.relu(x)
-        x = self.fc2(x)
-        return self.relu(x)
+        return self.fc2(x)
 
 
 class Decoder(nn.Module):
@@ -113,17 +125,19 @@ class PairsAutoEncoder(nn.Module):
         return self.d_net(x)
 
 
-class SCAstral(BaseEstimator, TransformerMixin):
+class SCAstral(BaseEstimator, TransformerMixin, ClassifierMixin):
     """
     Contrastive Autoencoder
     """
 
-    def __init__(self, input_size=200, hidden_size=64, latent_size=32, batch_size=32, max_epochs=200,
-                 lr=.0001, mu=.5, theta=.5, alfa=1, patience=np.inf, path='scae.pt', verbose=False,
-                 predictor=None, scorer=accuracy_score):
+    def __init__(self, input_size=200, hidden_size=64, latent_size=32, batch_size=32, min_epochs=5, max_epochs=200,
+                 lr=.0001, eps=1e-8, weight_decay=0, mu=.5, theta=.5, alfa=1, patience=np.inf, path='scastral.pt',
+                 verbose=False, early_stop_metric='accuracy',
+                 predictor=None, eval_metrics=None, pct_valid=.25):
         """
         scAstral constructor
 
+        :type min_epochs: minimum number of epochs
         :param input_size: input layer size
         :param hidden_size: hidden layer size
         :param latent_size: latent space size
@@ -132,78 +146,124 @@ class SCAstral(BaseEstimator, TransformerMixin):
         :param lr: learning rate
         :param mu:  margin for contrastive loss
         :param theta:  coefficient for contrastive loss
-        :param alfa:
+        :param alfa: coefficient for reconstruction loss
         :param patience:  maximum number of epochs with no improvement
         :param path:  path where to save model
         :param verbose:  print info about training
         :param predictor:  predictor for the latent space
-        :param scorer:  metric to compute on latent space
+        :param early_stop_metric: the key of the metric to be used for early stopping
+        :param eval_metrics:  dict of pairs 'metric_name': scorer
+        :param eps: Adam epsilon parameter
+        :param weight_decay: Adam weight decay parameter
         """
+
+        # network building ================================================
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.e_net = Encoder(input_size, hidden_size, latent_size).to(self.device)
         self.d_net = Decoder(input_size, hidden_size, latent_size).to(self.device)
         self.autoencoder = PairsAutoEncoder(self.e_net, self.d_net).to(self.device)
 
-        self.batch_size = batch_size
-        self.max_epochs = max_epochs
-        self.patience = patience
+        # hyperparameters===============================================
+
+        # adam
         self.lr = lr
+        self.weight_decay = weight_decay
+        self.eps = eps
+
+        # loss function
         self.mu = mu
         self.theta = theta
         self.alfa = alfa
 
-        self.valid = None
-        self.valid_y = None
-        self.training_summary = None
-        self.path = path
-        self.verbose = verbose
+        # network
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.latent_size = latent_size
+        self.batch_size = batch_size
 
-        self.ae_train = None
-        self.ae_valid = None
-        self.cl_valid = None
-        self.cl_valid_y = None
+        # Input/Output =================================
+
+        self.training_summary = None
+        self.verbose = verbose
+        self.path = path
+
+        # validation and early stopping=============================
 
         self.predictor = predictor
-        self.scorer = scorer
+        self.max_epochs = max_epochs
+        self.min_epochs = min_epochs
+        self.patience = patience
+
+        if eval_metrics is None:
+            self.eval_metrics = {'accuracy': accuracy_scorer}
+        else:
+            self.eval_metrics = eval_metrics
+
+        if isinstance(early_stop_metric, str) and early_stop_metric in eval_metrics.keys():
+            self.early_stop_metric = early_stop_metric  # set early stopping metric
+        else:
+            self.patience = np.inf  # disable early stopping
 
     def transform(self, X, y=None):
         """
         :param X: input
-        :param y: only for compatibility
-        :return:
+        :param y: only for sklearn compatibility
+        :return: embedding of input data as numpy array
         """
-        return self.e_net(torch.tensor(X, device=self.device, dtype=torch.float32)).detach().cpu().numpy()
+        return self.e_net(
+            torch.tensor(X, device=self.device, dtype=torch.float32)
+        ).detach().cpu().numpy()
 
-    def set_valid_data(self, X_valid, y_valid):
-        self.valid = X_valid
-        self.valid_y = y_valid
+    def predict(self, X, y=None):
+        """
+        :param X: input
+        :param y: only for sklearn compatibility
+        :return: prediction
+        """
+        return self.predictor.predict(self.transform(X))
 
-    def reset_weights(self):
-        for layer in self.autoencoder.children():
-            if hasattr(layer, 'reset_parameters'):
-                layer.reset_parameters()
+    def predict_proba(self, X, y=None):
+        """
+        :param X: input
+        :param y: only for sklearn compatibility
+        :return: probability for each class
+        """
+        return self.predictor.predict_proba(self.transform(X))
 
-    def fit(self, X, y):
+    def predict_log_proba(self, X, y=None):
+        """
+        :param X: input
+        :param y: only for sklearn compatibility
+        :return: log probability for each class
+        """
+        return self.predictor.predict_log_proba(self.transform(X))
 
-        self.reset_weights()
+    def fit(self, X, y, X_test=None, y_test=None):
+        """
+
+        :param X: train data
+        :param y: train labels
+        :param X_test: test data
+        :param y_test: test labels
+        :return:  fitted estimator
+        """
 
         # data structure that keep training curve
         self.training_summary = {'epoch': np.array(range(self.max_epochs)),
-                                 'train_loss': np.zeros(self.max_epochs),
-                                 'metric': np.zeros(self.max_epochs)}
+                                 'train_loss': np.zeros(self.max_epochs)}
+
+        for metric in self.eval_metrics.keys():
+            self.training_summary[metric] = np.zeros(self.max_epochs)
 
         # initialize dataloader
         train_dl = DataLoader(ContrastiveAEDataset(X, y), batch_size=self.batch_size)
 
         # initialize optimizer and loss functions
-        optim = Adam(self.autoencoder.parameters(), lr=self.lr)
-        contrastive_loss = nn.CosineEmbeddingLoss(margin=self.mu, reduction='sum')
+        optim = Adam(self.autoencoder.parameters(), lr=self.lr, weight_decay=self.weight_decay, eps=self.eps)
+        contrastive_loss = nn.CosineEmbeddingLoss(margin=self.mu, reduction='mean')
 
         # initialize variables for early stopping
-        max_acc = -np.inf
+        max_score = -np.inf
         no_improv_epoch = 0
         stop = False
         best_epoch = -1
@@ -211,7 +271,8 @@ class SCAstral(BaseEstimator, TransformerMixin):
         # training for each epoch
         for epoch in range(self.max_epochs):
             if stop:
-                print(f"best epoch {best_epoch + 1}")
+                if self.verbose:
+                    print(f"best epoch {best_epoch + 1} with {self.early_stop_metric}: {max_score}")
                 break
             if self.verbose:
                 print(f"-----epoch {epoch + 1}/{self.max_epochs}-----")
@@ -224,7 +285,7 @@ class SCAstral(BaseEstimator, TransformerMixin):
                 optim.zero_grad()
 
                 emb1, emb2, rec = self.autoencoder(X1, X2)  # forward
-                loss = self.alfa * mse_loss(rec, X1) + \
+                loss = self.alfa * mse_loss(X1, rec) + \
                        self.theta * contrastive_loss(emb1, emb2, flag)  # compute loss
 
                 loss.backward()  # backprop
@@ -239,33 +300,42 @@ class SCAstral(BaseEstimator, TransformerMixin):
             """
             self.autoencoder.eval()
             with torch.no_grad():
-                emb = self.transform(X)
-                self.training_summary['metric'][epoch] = cross_val_score(estimator=self.predictor,
-                                                                         X=emb, y=y, cv=5,
-                                                                         scoring=self.scorer,
-                                                                         n_jobs=-1).mean()
-                if self.verbose:
-                    print(f"metric: {self.training_summary['metric'][epoch]:.4f}")
+                emb_train = self.transform(X)
+                emb_test = self.transform(X_test)
+                self.predictor.fit(emb_train, y)
 
-                # early stopping
-                if self.training_summary['metric'][epoch] > max_acc:
-                    if self.verbose:  # accuracy based
+                for metric in self.eval_metrics.keys():  # compute eval metrics
+                    self.training_summary[metric][epoch] = self.eval_metrics[metric](emb_test, y_test, self.predictor)
+
+                if epoch <= self.min_epochs:
+                    continue
+                elif self.training_summary[self.early_stop_metric][epoch] >= max_score:  # early stopping
+                    if self.verbose:
                         print('updating')
                     torch.save({'model_ae_state': self.autoencoder.state_dict()}, self.path)
                     no_improv_epoch = 0
                     best_epoch = epoch
-                    max_acc = self.training_summary['metric'][epoch]
+                    max_score = self.training_summary[self.early_stop_metric][epoch]
                 else:
                     no_improv_epoch += 1
-                    if no_improv_epoch > self.patience:
+                    if no_improv_epoch >= self.patience:
                         stop = True
 
             # log improvements
             if self.verbose:
                 print(f"train loss:{self.training_summary['train_loss'][epoch]:.4f}")
-                print(f"valid loss:{self.training_summary['metric'][epoch]:.4f}")
+                for metric in self.eval_metrics.keys():
+                    print(f"{metric}: {self.training_summary[metric][epoch]:.4f}")
 
         # restore best weights
         checkpoint = torch.load(self.path, map_location='cpu')
         self.autoencoder.load_state_dict(checkpoint['model_ae_state'])
+
+        emb_train = self.transform(X)
+        emb_test = self.transform(X_test)
+
+        self.predictor.fit(np.vstack([emb_train, emb_test]),
+                           np.concatenate([y, y_test]))
+
+        self.training_summary = pd.DataFrame.from_dict(self.training_summary)
         return self
