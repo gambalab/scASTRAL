@@ -45,7 +45,9 @@ model = network.SCAstral(max_epochs=250, patience=20, batch_size=32, min_epochs=
                          predictor=clf)
 
 model.fit(X_train, y_train, X_test, y_test)
+print(np.mean(model.predict(train)))
 
+#%%
 transformed = model.transform(X_train)
 mask = np.array(y_train, dtype=bool)
 

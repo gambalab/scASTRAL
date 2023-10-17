@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 import scastral.network
 from scastral import *
-
+#%%
 path = 'data/validation_set/preprocessed'
 train = pd.read_csv('data/train_set/preprocessed_trainset.csv')
 train.set_index('Unnamed: 0', inplace=True, drop=True)  # set barcodes as index

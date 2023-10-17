@@ -136,3 +136,4 @@ dmypy.json
 /models/old_gs_results/
 /revision_1.py
 /models/weights.pt
+/models/model2
